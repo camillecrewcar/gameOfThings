@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Association Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <style>
+        canvas {
+            border: 2px solid #4B5563;
+        }
+        .word-bubble {
+            position: absolute;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        .word-bubble:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+    <div id="lobby" class="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+        <h1 class="text-2xl font-bold mb-4 text-center">Word Association Game</h1>
+        <p class="text-gray-600 mb-4 text-center">Find the word with the most similar meaning!</p>
+        <input id="playerName" type="text" placeholder="Enter your name" class="w-full p-2 mb-4 border rounded">
+        <button id="joinBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Join Game</button>
+        <h2 class="text-lg font-semibold mt-4">Players in Lobby:</h2>
+        <ul id="playerList" class="list-disc pl-5"></ul>
+        <button id="startBtn" class="w-full bg-green-500 text-white p-2 mt-4 rounded hover:bg-green-600 hidden">Start Game</button>
+    </div>
+    <div id="game" class="hidden flex flex-col items-center">
+        <div id="wordDisplay" class="text-3xl font-bold mb-4 bg-white p-4 rounded-lg shadow-md"></div>
+        <div id="instruction" class="text-lg mb-4">Click on the word with the most similar meaning!</div>
+        <div id="gameArea" class="relative bg-white rounded-lg shadow-md" style="width: 800px; height: 600px;">
+            <!-- Word bubbles will be added here -->
+            <div id="debugInfo" class="absolute bottom-0 left-0 p-2 text-xs text-gray-500"></div>
+        </div>
+        <div id="scoreContainer" class="mt-6 bg-white p-4 rounded-lg shadow-md w-full max-w-md">
+            <h2 class="text-xl font-bold mb-2">Scores</h2>
+            <div id="scoreBoard"></div>
+        </div>
+        <div id="gameStatus" class="mt-2 text-sm text-gray-600"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let playerId = null;
+        let playerName = '';
+        let players = {};
+        let scores = {};
+        let gameStarted = false;
+        let currentWord = '';
+        let currentOptions = [];
+
+        // Lobby elements
+        const lobby = document.getElementById('lobby');
+        const gameDiv = document.getElementById('game');
+        const playerNameInput = document.getElementById('playerName');
+        const joinBtn = document.getElementById('joinBtn');
+        const startBtn = document.getElementById('startBtn');
+        const playerList = document.getElementById('playerList');
+
+        // Game elements
+        const wordDisplay = document.getElementById('wordDisplay');
+        const gameArea = document.getElementById('gameArea');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const debugInfo = document.getElementById('debugInfo');
+        const gameStatus = document.getElementById('gameStatus');
+
+        // Color palette for word bubbles
+        const colors = [
+            '#3498db', '#e74c3c', '#2ecc71', '#f39c12', 
+            '#9b59b6', '#1abc9c', '#d35400', '#34495e'
+        ];
+
+        // Default words in case server doesn't send options
+        const fallbackWords = {
+            word: "happy",
+            options: ["joyful", "sad", "excited", "content"],
+            positions: [
+                { x: 200, y: 150, radius: 70 },
+                { x: 600, y: 150, radius: 70 },
+                { x: 200, y: 450, radius: 70 },
+                { x: 600, y: 450, radius: 70 }
+            ]
+        };
+
+        // Join lobby
+        joinBtn.addEventListener('click', () => {
+            playerName = playerNameInput.value.trim();
+            if (playerName) {
+                socket.emit('join', playerName);
+                playerNameInput.disabled = true;
+                joinBtn.disabled = true;
+            }
+        });
+
+        // Start game
+        startBtn.addEventListener('click', () => {
+            socket.emit('startGame');
+        });
+
+        // Update player list
+        socket.on('updatePlayers', (playerData) => {
+            players = playerData;
+            playerList.innerHTML = '';
+            let isHost = false;
+            
+            for (let id in players) {
+                const li = document.createElement('li');
+                li.textContent = players[id].name;
+                playerList.appendChild(li);
+                if (id === socket.id && Object.keys(players).indexOf(id) === 0) {
+                    isHost = true;
+                }
+            }
+            startBtn.classList.toggle('hidden', !isHost || Object.keys(players).length < 2);
+        });
+
+        // Start game
+        socket.on('gameStarted', () => {
+            lobby.classList.add('hidden');
+            gameDiv.classList.remove('hidden');
+            gameStarted = true;
+            updateScoreBoard();
+            
+            // If server doesn't send a new round within 3 seconds, use fallback
+            setTimeout(() => {
+                if (gameArea.children.length <= 1) { // Only the debug div
+                    gameStatus.textContent = "Using fallback words (server didn't send words)";
+                    handleNewRound(fallbackWords);
+                }
+            }, 3000);
+        });
+
+        // New round
+        socket.on('newRound', (data) => {
+            handleNewRound(data);
+        });
+
+        // Handle new round data 
+        function handleNewRound(data) {
+            if (!data || !data.options || !data.positions) {
+                debugInfo.textContent = "Error: Invalid round data received";
+                console.error("Invalid round data:", data);
+                return;
+            }
+            
+            currentWord = data.word;
+            currentOptions = data.options;
+            
+            // Update the word display
+            wordDisplay.textContent = `Find a similar word for: ${currentWord}`;
+            
+            // Clear previous word bubbles (except debug info)
+            Array.from(gameArea.children).forEach(child => {
+                if (child.id !== 'debugInfo') {
+                    gameArea.removeChild(child);
+                }
+            });
+            
+            // Debug info
+            debugInfo.textContent = `Word: ${currentWord}, Options: ${data.options.join(', ')}`;
+            
+            // Create new word bubbles
+            data.options.forEach((word, index) => {
+                if (!data.positions[index]) {
+                    console.error(`No position for option ${index}`);
+                    return;
+                }
+                
+                const colorIndex = index % colors.length;
+                
+                const bubble = document.createElement('div');
+                bubble.className = 'word-bubble';
+                bubble.textContent = word;
+                bubble.dataset.word = word; // Store word in dataset for easier retrieval
+                bubble.style.backgroundColor = colors[colorIndex];
+                bubble.style.width = `${data.positions[index].radius * 2}px`;
+                bubble.style.height = `${data.positions[index].radius * 2}px`;
+                bubble.style.left = `${data.positions[index].x - data.positions[index].radius}px`;
+                bubble.style.top = `${data.positions[index].y - data.positions[index].radius}px`;
+                bubble.style.zIndex = "10"; // Ensure bubbles are above other elements
+                
+                bubble.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const selectedWord = this.dataset.word;
+                    gameStatus.textContent = `You selected: ${selectedWord}`;
+                    console.log(`Selected word: ${selectedWord}`);
+                    
+                    // Add visual feedback for click
+                    this.style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        this.style.transform = '';
+                    }, 200);
+                    
+                    try {
+                        socket.emit('wordSelected', { 
+                            word: selectedWord, 
+                            playerId: socket.id 
+                        });
+                        console.log('Sent selection to server');
+                    } catch (error) {
+                        console.error('Error sending selection:', error);
+                        gameStatus.textContent = `Error sending selection: ${error.message}`;
+                    }
+                });
+                
+                gameArea.appendChild(bubble);
+            });
+            
+            // Show how many bubbles were added
+            gameStatus.textContent = `Round started: ${data.options.length} word options created`;
+        }
+
+        // Update scores
+        socket.on('updateScores', (newScores) => {
+            scores = newScores;
+            updateScoreBoard();
+        });
+
+        // Listen for selection confirmation
+        socket.on('selectionReceived', (data) => {
+            console.log('Server acknowledged selection:', data);
+            gameStatus.textContent = `Selection confirmed: ${data.word}`;
+        });
+
+        // Update score display
+        function updateScoreBoard() {
+            let scoreText = '';
+            
+            // Sort players by score in descending order
+            const sortedPlayers = Object.keys(scores).sort((a, b) => scores[b] - scores[a]);
+            
+            for (const id of sortedPlayers) {
+                const playerName = players[id]?.name || 'Unknown';
+                const score = scores[id] || 0;
+                const isCurrentPlayer = id === socket.id;
+                
+                scoreText += `<div class="flex justify-between py-1 ${isCurrentPlayer ? 'font-bold' : ''}">
+                    <span>${playerName}</span>
+                    <span>${score}</span>
+                </div>`;
+            }
+            
+            scoreBoard.innerHTML = scoreText || '<div>No scores yet</div>';
+        }
+
+        // Handle disconnection
+        socket.on('playerDisconnected', (id) => {
+            delete players[id];
+            delete scores[id];
+            updateScoreBoard();
+        });
+
+        // Connection error handling
+        socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            gameStatus.textContent = `Connection error: ${error.message}`;
+        });
+
+        // Manual testing function for development
+        function testWords() {
+            handleNewRound(fallbackWords);
+        }
+    </script>
+</body>
+</html>
