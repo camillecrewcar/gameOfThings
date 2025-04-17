@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Word Association Game</title>
+    <title>Word Impostor Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
     <style>
@@ -25,30 +25,110 @@
         .word-bubble:hover {
             transform: scale(1.05);
         }
+        .player-card {
+            transition: all 0.3s ease;
+        }
+        .player-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .phase-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-weight: bold;
+        }
+        /* Add better styling for the player word display */
+        #playerWord {
+            font-size: 2.5rem;
+            min-height: 4rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #f3f4f6;
+            border: 2px solid #d1d5db;
+            color: #1f2937;
+            text-shadow: 0 1px 0 white;
+        }
+        /* Add a highlight animation for the word when it appears */
+        @keyframes highlightWord {
+            0% { transform: scale(0.95); background-color: #dbeafe; }
+            50% { transform: scale(1.05); background-color: #eff6ff; }
+            100% { transform: scale(1); background-color: #f3f4f6; }
+        }
+        .word-highlight {
+            animation: highlightWord 0.8s ease-in-out;
+        }
+        /* Disable button style */
+        .btn-disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
     </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center h-screen">
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
     <div id="lobby" class="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
-        <h1 class="text-2xl font-bold mb-4 text-center">Word Association Game</h1>
-        <p class="text-gray-600 mb-4 text-center">Find the word with the most similar meaning!</p>
+        <h1 class="text-2xl font-bold mb-4 text-center">Word Impostor Game</h1>
+        <p class="text-gray-600 mb-4 text-center">Describe your word and find who has the different one!</p>
         <input id="playerName" type="text" placeholder="Enter your name" class="w-full p-2 mb-4 border rounded">
         <button id="joinBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Join Game</button>
         <h2 class="text-lg font-semibold mt-4">Players in Lobby:</h2>
         <ul id="playerList" class="list-disc pl-5"></ul>
         <button id="startBtn" class="w-full bg-green-500 text-white p-2 mt-4 rounded hover:bg-green-600 hidden">Start Game</button>
     </div>
-    <div id="game" class="hidden flex flex-col items-center">
-        <div id="wordDisplay" class="text-3xl font-bold mb-4 bg-white p-4 rounded-lg shadow-md"></div>
-        <div id="instruction" class="text-lg mb-4">Click on the word with the most similar meaning!</div>
-        <div id="gameArea" class="relative bg-white rounded-lg shadow-md" style="width: 800px; height: 600px;">
-            <!-- Word bubbles will be added here -->
-            <div id="debugInfo" class="absolute bottom-0 left-0 p-2 text-xs text-gray-500"></div>
+    
+    <div id="game" class="hidden flex flex-col items-center w-full max-w-4xl">
+        <div class="phase-indicator bg-blue-500 text-white" id="phaseIndicator">Waiting</div>
+        
+        <!-- Your word section -->
+        <div id="wordSection" class="bg-white p-6 rounded-lg shadow-lg w-full mb-6">
+            <h2 class="text-xl font-bold mb-2">Your Word</h2>
+            <div id="playerWord" class="text-3xl font-bold text-center p-4 mb-2 bg-gray-100 rounded-lg"></div>
+            <p class="text-gray-600 mb-4">Describe your word to others without saying it directly.</p>
+            
+            <div id="descriptionSection">
+                <input id="descriptionInput" type="text" placeholder="My thing is..." class="w-full p-2 mb-2 border rounded" maxlength="100">
+                <button id="submitDescriptionBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Submit Description</button>
+            </div>
         </div>
-        <div id="scoreContainer" class="mt-6 bg-white p-4 rounded-lg shadow-md w-full max-w-md">
+        
+        <!-- Game phase display -->
+        <div id="gamePhaseDisplay" class="bg-white p-4 rounded-lg shadow-md w-full mb-6">
+            <h2 class="text-xl font-bold mb-2" id="currentPhaseTitle">Describing Phase</h2>
+            <p id="phaseDescription" class="text-gray-600">Each player will describe their word without saying it directly.</p>
+            <div id="timerDisplay" class="text-right text-lg font-bold">Time left: <span id="timeLeft">60</span>s</div>
+        </div>
+        
+        <!-- Player descriptions section -->
+        <div id="playersSection" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full mb-6">
+            <!-- Player cards will be added here dynamically -->
+        </div>
+        
+        <!-- Voting section (hidden initially) -->
+        <div id="votingSection" class="hidden bg-white p-6 rounded-lg shadow-lg w-full mb-6">
+            <h2 class="text-xl font-bold mb-4">Vote for the Impostor</h2>
+            <p class="text-gray-600 mb-4">Who do you think has the different word?</p>
+            <div id="votingOptions" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <!-- Voting options will be added here -->
+            </div>
+            <button id="submitVoteBtn" class="w-full bg-red-500 text-white p-2 mt-4 rounded hover:bg-red-600">Submit Vote</button>
+        </div>
+        
+        <!-- Results section (hidden initially) -->
+        <div id="resultsSection" class="hidden bg-white p-6 rounded-lg shadow-lg w-full">
+            <h2 class="text-xl font-bold mb-2">Round Results</h2>
+            <div id="roundResults" class="p-4 bg-gray-100 rounded-lg mb-4"></div>
+            <div id="wordReveal" class="p-4 bg-gray-100 rounded-lg mb-4"></div>
+            <button id="nextRoundBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Next Round</button>
+        </div>
+        
+        <!-- Scores section -->
+        <div id="scoreContainer" class="mt-6 bg-white p-4 rounded-lg shadow-md w-full">
             <h2 class="text-xl font-bold mb-2">Scores</h2>
             <div id="scoreBoard"></div>
         </div>
-        <div id="gameStatus" class="mt-2 text-sm text-gray-600"></div>
     </div>
 
     <script>
@@ -59,40 +139,36 @@
         let scores = {};
         let gameStarted = false;
         let currentWord = '';
-        let currentOptions = [];
-
-        // Lobby elements
+        let currentPhase = 'waiting'; // waiting, describing, voting, results
+        let playerDescription = '';
+        let hasVoted = false;
+        let myVote = null;
+        let impostors = []; // IDs of impostor players
+        let timerInterval;
+        
+        // Game elements
         const lobby = document.getElementById('lobby');
         const gameDiv = document.getElementById('game');
         const playerNameInput = document.getElementById('playerName');
         const joinBtn = document.getElementById('joinBtn');
         const startBtn = document.getElementById('startBtn');
         const playerList = document.getElementById('playerList');
-
-        // Game elements
-        const wordDisplay = document.getElementById('wordDisplay');
-        const gameArea = document.getElementById('gameArea');
+        const playerWord = document.getElementById('playerWord');
+        const descriptionInput = document.getElementById('descriptionInput');
+        const submitDescriptionBtn = document.getElementById('submitDescriptionBtn');
+        const playersSection = document.getElementById('playersSection');
+        const votingSection = document.getElementById('votingSection');
+        const votingOptions = document.getElementById('votingOptions');
+        const submitVoteBtn = document.getElementById('submitVoteBtn');
+        const resultsSection = document.getElementById('resultsSection');
+        const roundResults = document.getElementById('roundResults');
+        const wordReveal = document.getElementById('wordReveal');
+        const nextRoundBtn = document.getElementById('nextRoundBtn');
         const scoreBoard = document.getElementById('scoreBoard');
-        const debugInfo = document.getElementById('debugInfo');
-        const gameStatus = document.getElementById('gameStatus');
-
-        // Color palette for word bubbles
-        const colors = [
-            '#3498db', '#e74c3c', '#2ecc71', '#f39c12', 
-            '#9b59b6', '#1abc9c', '#d35400', '#34495e'
-        ];
-
-        // Default words in case server doesn't send options
-        const fallbackWords = {
-            word: "happy",
-            options: ["joyful", "sad", "excited", "content"],
-            positions: [
-                { x: 200, y: 150, radius: 70 },
-                { x: 600, y: 150, radius: 70 },
-                { x: 200, y: 450, radius: 70 },
-                { x: 600, y: 450, radius: 70 }
-            ]
-        };
+        const phaseIndicator = document.getElementById('phaseIndicator');
+        const currentPhaseTitle = document.getElementById('currentPhaseTitle');
+        const phaseDescription = document.getElementById('phaseDescription');
+        const timeLeft = document.getElementById('timeLeft');
 
         // Join lobby
         joinBtn.addEventListener('click', () => {
@@ -106,7 +182,67 @@
 
         // Start game
         startBtn.addEventListener('click', () => {
+            console.log("Start game button clicked");
+            startBtn.disabled = true;
+            startBtn.textContent = 'Starting game...';
+            startBtn.classList.add('btn-disabled');
+            
+            // Emit the startGame event to the server
             socket.emit('startGame');
+            
+            // Fallback in case server doesn't respond
+            setTimeout(() => {
+                if (lobby.classList.contains('hidden') === false) {
+                    console.log("Server didn't respond to game start, using local fallback");
+                    // Manually start the game interface
+                    lobby.classList.add('hidden');
+                    gameDiv.classList.remove('hidden');
+                    gameStarted = true;
+                    
+                    // Create a mock game with fallback data
+                    setTimeout(() => {
+                        handleFallbackRound();
+                    }, 1000);
+                }
+            }, 5000);
+        });
+
+        // Submit description
+        submitDescriptionBtn.addEventListener('click', () => {
+            playerDescription = descriptionInput.value.trim();
+            if (playerDescription) {
+                socket.emit('submitDescription', {
+                    playerId: socket.id,
+                    description: playerDescription
+                });
+                descriptionInput.disabled = true;
+                submitDescriptionBtn.disabled = true;
+                submitDescriptionBtn.textContent = 'Description Submitted';
+                submitDescriptionBtn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+                submitDescriptionBtn.classList.add('bg-gray-400');
+            }
+        });
+
+        // Submit vote
+        submitVoteBtn.addEventListener('click', () => {
+            if (myVote) {
+                socket.emit('submitVote', {
+                    voter: socket.id,
+                    votedFor: myVote
+                });
+                submitVoteBtn.disabled = true;
+                submitVoteBtn.textContent = 'Vote Submitted';
+                submitVoteBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                submitVoteBtn.classList.add('bg-gray-400');
+                hasVoted = true;
+            }
+        });
+
+        // Next round
+        nextRoundBtn.addEventListener('click', () => {
+            socket.emit('readyForNextRound');
+            nextRoundBtn.disabled = true;
+            nextRoundBtn.textContent = 'Waiting for others...';
         });
 
         // Update player list
@@ -123,116 +259,305 @@
                     isHost = true;
                 }
             }
-            startBtn.classList.toggle('hidden', !isHost || Object.keys(players).length < 2);
+            startBtn.classList.toggle('hidden', !isHost || Object.keys(players).length < 3);
         });
 
-        // Start game
+        // Game started
         socket.on('gameStarted', () => {
+            console.log("Game started event received from server");
             lobby.classList.add('hidden');
             gameDiv.classList.remove('hidden');
             gameStarted = true;
+            
+            // Reset start button state (in case it's needed later)
+            startBtn.disabled = false;
+            startBtn.textContent = 'Start Game';
+            startBtn.classList.remove('btn-disabled');
+            
             updateScoreBoard();
             
-            // If server doesn't send a new round within 3 seconds, use fallback
+            // If no round data is received within 3 seconds, use fallback
             setTimeout(() => {
-                if (gameArea.children.length <= 1) { // Only the debug div
-                    gameStatus.textContent = "Using fallback words (server didn't send words)";
-                    handleNewRound(fallbackWords);
+                if (!currentWord) {
+                    console.log("No word received from server, using fallback");
+                    handleFallbackRound();
                 }
             }, 3000);
         });
+        
+        // Fallback function to simulate a round if server doesn't send data
+        function handleFallbackRound() {
+            console.log("Running fallback round handler");
+            const fallbackData = {
+                word: "cat",
+                timeLimit: 60,
+                playerRole: "regular" // or "impostor"
+            };
+            
+            // Ensure UI is properly set up
+            descriptionInput.value = '';
+            descriptionInput.disabled = false;
+            submitDescriptionBtn.disabled = false;
+            submitDescriptionBtn.textContent = 'Submit Description';
+            submitDescriptionBtn.classList.add('bg-blue-500', 'hover:bg-blue-600');
+            submitDescriptionBtn.classList.remove('bg-gray-400');
+            
+            playersSection.innerHTML = '';
+            votingSection.classList.add('hidden');
+            resultsSection.classList.add('hidden');
+            
+            // Manually trigger the new round handler
+            currentWord = fallbackData.word;
+            playerWord.textContent = currentWord;
+            playerWord.classList.add('word-highlight');
+            console.log("Fallback word set:", currentWord);
+            
+            // Remove highlight animation after it plays
+            setTimeout(() => {
+                playerWord.classList.remove('word-highlight');
+            }, 1000);
+            
+            // Update phase
+            setPhase('describing');
+            updatePhaseUI();
+            
+            // Start a fallback timer
+            startTimer(fallbackData.timeLimit);
+            
+            // Create fallback player descriptions for testing
+            setTimeout(() => {
+                const mockDescriptions = {
+                    'player1': 'It is a small four-legged animal',
+                    'player2': 'It makes a meow sound',
+                    'player3': 'It hunts mice'
+                };
+                
+                playersSection.innerHTML = '';
+                
+                for (let id in mockDescriptions) {
+                    const card = document.createElement('div');
+                    card.className = 'player-card bg-white p-4 rounded-lg shadow border-2 border-transparent';
+                    
+                    card.innerHTML = `
+                        <h3 class="font-bold text-lg">Player ${id.slice(-1)}</h3>
+                        <p class="text-gray-600 italic">"${mockDescriptions[id]}"</p>
+                    `;
+                    
+                    playersSection.appendChild(card);
+                }
+            }, 10000); // After 10 seconds show mock descriptions
+        }
 
         // New round
         socket.on('newRound', (data) => {
-            handleNewRound(data);
+            // Reset UI
+            descriptionInput.value = '';
+            descriptionInput.disabled = false;
+            submitDescriptionBtn.disabled = false;
+            submitDescriptionBtn.textContent = 'Submit Description';
+            submitDescriptionBtn.classList.add('bg-blue-500', 'hover:bg-blue-600');
+            submitDescriptionBtn.classList.remove('bg-gray-400');
+            
+            playersSection.innerHTML = '';
+            votingSection.classList.add('hidden');
+            resultsSection.classList.add('hidden');
+            
+            // Set player's word with visual indication
+            currentWord = data.word;
+            playerWord.textContent = currentWord;
+            playerWord.classList.add('word-highlight');
+            
+            // Log to console for debugging
+            console.log("Player's word set to:", currentWord);
+            
+            // Remove highlight animation after it plays
+            setTimeout(() => {
+                playerWord.classList.remove('word-highlight');
+            }, 1000);
+            
+            playerDescription = '';
+            hasVoted = false;
+            myVote = null;
+            
+            // Update phase
+            setPhase('describing');
+            
+            // Update UI based on phase
+            updatePhaseUI();
+            
+            // Start timer if provided
+            if (data.timeLimit) {
+                startTimer(data.timeLimit);
+            }
         });
 
-        // Handle new round data 
-        function handleNewRound(data) {
-            if (!data || !data.options || !data.positions) {
-                debugInfo.textContent = "Error: Invalid round data received";
-                console.error("Invalid round data:", data);
-                return;
+        // Update descriptions
+        socket.on('updateDescriptions', (descriptions) => {
+            playersSection.innerHTML = '';
+            
+            for (let id in descriptions) {
+                const player = players[id];
+                if (!player) continue;
+                
+                const description = descriptions[id];
+                const card = document.createElement('div');
+                card.className = 'player-card bg-white p-4 rounded-lg shadow border-2 border-transparent';
+                
+                card.innerHTML = `
+                    <h3 class="font-bold text-lg">${player.name}</h3>
+                    <p class="text-gray-600 italic">"${description}"</p>
+                `;
+                
+                playersSection.appendChild(card);
             }
+        });
+
+        // Start voting phase
+        socket.on('startVoting', (playerData) => {
+            setPhase('voting');
+            updatePhaseUI();
             
-            currentWord = data.word;
-            currentOptions = data.options;
+            votingOptions.innerHTML = '';
             
-            // Update the word display
-            wordDisplay.textContent = `Find a similar word for: ${currentWord}`;
-            
-            // Clear previous word bubbles (except debug info)
-            Array.from(gameArea.children).forEach(child => {
-                if (child.id !== 'debugInfo') {
-                    gameArea.removeChild(child);
-                }
-            });
-            
-            // Debug info
-            debugInfo.textContent = `Word: ${currentWord}, Options: ${data.options.join(', ')}`;
-            
-            // Create new word bubbles
-            data.options.forEach((word, index) => {
-                if (!data.positions[index]) {
-                    console.error(`No position for option ${index}`);
-                    return;
-                }
+            // Create voting options for each player except self
+            for (let id in playerData) {
+                if (id === socket.id) continue;
                 
-                const colorIndex = index % colors.length;
+                const player = playerData[id];
+                const option = document.createElement('div');
+                option.className = 'player-card p-3 bg-white rounded-lg shadow border-2 border-transparent cursor-pointer';
+                option.innerHTML = `<p class="font-bold">${player.name}</p>`;
+                option.dataset.playerId = id;
                 
-                const bubble = document.createElement('div');
-                bubble.className = 'word-bubble';
-                bubble.textContent = word;
-                bubble.dataset.word = word; // Store word in dataset for easier retrieval
-                bubble.style.backgroundColor = colors[colorIndex];
-                bubble.style.width = `${data.positions[index].radius * 2}px`;
-                bubble.style.height = `${data.positions[index].radius * 2}px`;
-                bubble.style.left = `${data.positions[index].x - data.positions[index].radius}px`;
-                bubble.style.top = `${data.positions[index].y - data.positions[index].radius}px`;
-                bubble.style.zIndex = "10"; // Ensure bubbles are above other elements
-                
-                bubble.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    const selectedWord = this.dataset.word;
-                    gameStatus.textContent = `You selected: ${selectedWord}`;
-                    console.log(`Selected word: ${selectedWord}`);
+                option.addEventListener('click', () => {
+                    // Clear previous selection
+                    document.querySelectorAll('.player-card').forEach(card => {
+                        card.classList.remove('border-blue-500');
+                    });
                     
-                    // Add visual feedback for click
-                    this.style.transform = 'scale(0.95)';
-                    setTimeout(() => {
-                        this.style.transform = '';
-                    }, 200);
-                    
-                    try {
-                        socket.emit('wordSelected', { 
-                            word: selectedWord, 
-                            playerId: socket.id 
-                        });
-                        console.log('Sent selection to server');
-                    } catch (error) {
-                        console.error('Error sending selection:', error);
-                        gameStatus.textContent = `Error sending selection: ${error.message}`;
-                    }
+                    // Mark this option as selected
+                    option.classList.add('border-blue-500');
+                    myVote = id;
                 });
                 
-                gameArea.appendChild(bubble);
-            });
+                votingOptions.appendChild(option);
+            }
+        });
+
+        // Results phase
+        socket.on('roundResults', (data) => {
+            setPhase('results');
+            updatePhaseUI();
             
-            // Show how many bubbles were added
-            gameStatus.textContent = `Round started: ${data.options.length} word options created`;
-        }
+            // Display voting results
+            let resultsHTML = '<h3 class="font-bold mb-2">Voting Results:</h3>';
+            
+            for (let id in data.votes) {
+                const votedPlayer = players[data.votes[id]];
+                resultsHTML += `<p>${players[id].name} voted for ${votedPlayer ? votedPlayer.name : 'no one'}</p>`;
+            }
+            
+            roundResults.innerHTML = resultsHTML;
+            
+            // Display word reveal
+            let revealHTML = '<h3 class="font-bold mb-2">Word Reveal:</h3>';
+            
+            // Show the two different words
+            revealHTML += `<p>Majority word: <span class="font-bold">${data.majorityWord}</span></p>`;
+            revealHTML += `<p>Impostor word: <span class="font-bold">${data.impostorWord}</span></p>`;
+            
+            // Show who had which word
+            revealHTML += '<p class="mt-2 mb-1 font-bold">Players with majority word:</p><ul class="list-disc pl-5">';
+            data.majorityPlayers.forEach(id => {
+                revealHTML += `<li>${players[id].name}</li>`;
+            });
+            revealHTML += '</ul>';
+            
+            revealHTML += '<p class="mt-2 mb-1 font-bold">Impostors:</p><ul class="list-disc pl-5">';
+            data.impostors.forEach(id => {
+                revealHTML += `<li>${players[id].name}</li>`;
+            });
+            revealHTML += '</ul>';
+            
+            wordReveal.innerHTML = revealHTML;
+            
+            // Store impostor IDs for reference
+            impostors = data.impostors;
+            
+            // Reset next round button
+            nextRoundBtn.disabled = false;
+            nextRoundBtn.textContent = 'Next Round';
+        });
 
         // Update scores
         socket.on('updateScores', (newScores) => {
             scores = newScores;
             updateScoreBoard();
         });
-
-        // Listen for selection confirmation
-        socket.on('selectionReceived', (data) => {
-            console.log('Server acknowledged selection:', data);
-            gameStatus.textContent = `Selection confirmed: ${data.word}`;
-        });
+        
+        // Helper function to set game phase
+        function setPhase(phase) {
+            currentPhase = phase;
+            
+            // Update phase indicator color
+            switch (phase) {
+                case 'describing':
+                    phaseIndicator.className = 'phase-indicator bg-blue-500 text-white';
+                    phaseIndicator.textContent = 'Describing';
+                    break;
+                case 'voting':
+                    phaseIndicator.className = 'phase-indicator bg-red-500 text-white';
+                    phaseIndicator.textContent = 'Voting';
+                    break;
+                case 'results':
+                    phaseIndicator.className = 'phase-indicator bg-green-500 text-white';
+                    phaseIndicator.textContent = 'Results';
+                    break;
+                default:
+                    phaseIndicator.className = 'phase-indicator bg-gray-500 text-white';
+                    phaseIndicator.textContent = 'Waiting';
+            }
+        }
+        
+        // Update UI based on current phase
+        function updatePhaseUI() {
+            // Update phase title and description
+            switch (currentPhase) {
+                case 'describing':
+                    currentPhaseTitle.textContent = 'Describing Phase';
+                    phaseDescription.textContent = 'Each player will describe their word without saying it directly.';
+                    votingSection.classList.add('hidden');
+                    resultsSection.classList.add('hidden');
+                    break;
+                case 'voting':
+                    currentPhaseTitle.textContent = 'Voting Phase';
+                    phaseDescription.textContent = 'Vote for who you think has the different word.';
+                    votingSection.classList.remove('hidden');
+                    resultsSection.classList.add('hidden');
+                    break;
+                case 'results':
+                    currentPhaseTitle.textContent = 'Results Phase';
+                    phaseDescription.textContent = 'See the results and prepare for the next round.';
+                    votingSection.classList.add('hidden');
+                    resultsSection.classList.remove('hidden');
+                    break;
+            }
+        }
+        
+        // Start a countdown timer
+        function startTimer(seconds) {
+            clearInterval(timerInterval);
+            timeLeft.textContent = seconds;
+            
+            timerInterval = setInterval(() => {
+                seconds--;
+                timeLeft.textContent = seconds;
+                
+                if (seconds <= 0) {
+                    clearInterval(timerInterval);
+                }
+            }, 1000);
+        }
 
         // Update score display
         function updateScoreBoard() {
@@ -265,13 +590,7 @@
         // Connection error handling
         socket.on('connect_error', (error) => {
             console.error('Connection error:', error);
-            gameStatus.textContent = `Connection error: ${error.message}`;
         });
-
-        // Manual testing function for development
-        function testWords() {
-            handleNewRound(fallbackWords);
-        }
     </script>
 </body>
 </html>
