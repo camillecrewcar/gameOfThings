@@ -1,0 +1,59 @@
+canvas {
+    border: 2px solid #4B5563;
+}
+.word-bubble {
+    position: absolute;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s;
+}
+.word-bubble:hover {
+    transform: scale(1.05);
+}
+.player-card {
+    transition: all 0.3s ease;
+}
+.player-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+.phase-indicator {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-weight: bold;
+}
+/* Add better styling for the player word display */
+#playerWord {
+    font-size: 2.5rem;
+    min-height: 4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f3f4f6;
+    border: 2px solid #d1d5db;
+    color: #1f2937;
+    text-shadow: 0 1px 0 white;
+}
+/* Add a highlight animation for the word when it appears */
+@keyframes highlightWord {
+    0% { transform: scale(0.95); background-color: #dbeafe; }
+    50% { transform: scale(1.05); background-color: #eff6ff; }
+    100% { transform: scale(1); background-color: #f3f4f6; }
+}
+.word-highlight {
+    animation: highlightWord 0.8s ease-in-out;
+}
+/* Disable button style */
+.btn-disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
