@@ -1,0 +1,510 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Impostor Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center min-h-screen font-poppins">
+    <div id="loader" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="animate-spin rounded-full h-32 w-32 border-t-4 border-b-4 border-white"></div>
+    </div>
+
+    <div class="container mx-auto px-4 py-8">
+        <div id="lobby" class="bg-white p-8 rounded-xl shadow-2xl max-w-md mx-auto animate__animated animate__fadeIn">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-indigo-700">Word Impostor</h1>
+                <p class="text-gray-500 mt-2">A game of deception and deduction</p>
+            </div>
+            
+            <div class="space-y-5">
+                <div class="group">
+                    <label for="playerName" class="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                    <input id="playerName" type="text" placeholder="Enter your name" 
+                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+                </div>
+                
+                <button id="createLobbyBtn" class="w-full bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 font-medium transition-all transform hover:scale-105">
+                    Create New Lobby
+                </button>
+                
+                <div class="text-center text-gray-500">- OR -</div>
+                
+                <div class="flex space-x-2">
+                    <div class="flex-1">
+                        <input id="lobbyCode" type="text" placeholder="Enter lobby code" 
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 uppercase transition-all">
+                    </div>
+                    <button id="joinLobbyBtn" class="bg-green-600 text-white px-5 py-3 rounded-lg hover:bg-green-700 font-medium transition-all transform hover:scale-105">
+                        Join
+                    </button>
+                </div>
+            </div>
+            
+            <div id="lobbyInfo" class="mt-8 hidden animate__animated animate__fadeIn">
+                <div class="bg-indigo-50 p-4 rounded-lg mb-6">
+                    <p id="lobbyCodeDisplay" class="text-center text-xl font-bold text-indigo-700"></p>
+                    <p class="text-center text-sm text-gray-500 mt-1">Share this code with your friends</p>
+                </div>
+                
+                <div class="bg-white rounded-lg border border-gray-200 p-4">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-3">Players:</h2>
+                    <ul id="playerList" class="space-y-2"></ul>
+                </div>
+                
+                <button id="startBtn" class="w-full mt-6 bg-green-600 text-white p-3 rounded-lg hover:bg-green-700 font-medium hidden transition-all transform hover:scale-105">
+                    Start Game
+                </button>
+            </div>
+        </div>
+        
+        <div id="game" class="bg-white p-8 rounded-xl shadow-2xl max-w-md mx-auto hidden">
+            <div class="text-center mb-6">
+                <h1 class="text-3xl font-bold text-indigo-700 mb-2">Word Impostor</h1>
+                <div id="gameStatus" class="py-2 px-4 rounded-full bg-indigo-100 text-indigo-800 inline-block font-medium"></div>
+            </div>
+            
+            <div id="playerWord" class="hidden bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 rounded-lg text-center text-xl font-bold mb-6 animate__animated animate__pulse"></div>
+            
+            <div id="descriptionPhase" class="hidden animate__animated animate__fadeIn">
+                <p class="text-gray-600 mb-3">Without revealing your word, describe what your thing is like:</p>
+                <textarea id="descriptionInput" placeholder="My thing is..." 
+                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[100px]"></textarea>
+                <button id="submitDescription" class="w-full mt-4 bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 font-medium transition-all">Submit</button>
+            </div>
+            
+            <div id="votingPhase" class="hidden animate__animated animate__fadeIn">
+                <div class="mb-6 bg-gray-50 rounded-lg p-4">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-2">Descriptions:</h2>
+                    <ul id="descriptionsList" class="space-y-2 text-gray-600"></ul>
+                </div>
+                
+                <div class="bg-red-50 rounded-lg p-4 mb-6">
+                    <h2 class="text-lg font-semibold text-red-700 mb-2">Vote to kick the impostor:</h2>
+                    <ul id="voteList" class="space-y-3"></ul>
+                </div>
+                
+                <button id="submitVote" class="w-full bg-red-600 text-white p-3 rounded-lg hover:bg-red-700 font-medium hidden transition-all">
+                    Submit Vote
+                </button>
+            </div>
+            
+            <div id="gameOver" class="hidden animate__animated animate__bounceIn">
+                <div class="text-center">
+                    <div class="mb-6 text-6xl">🏆</div>
+                    <p id="gameResult" class="text-xl font-bold mb-6 text-indigo-700"></p>
+                </div>
+                <button id="returnToLobby" class="w-full bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 font-medium transition-all">
+                    Return to Lobby
+                </button>
+            </div>
+            
+            <div id="kickedMessage" class="hidden animate__animated animate__fadeIn text-center">
+                <div class="mb-6 text-6xl">🚫</div>
+                <p class="text-xl font-bold mb-6 text-red-700">You were kicked from the game!</p>
+                <p class="text-gray-600 mb-6">You can watch the game continue, but cannot participate.</p>
+            </div>
+            
+            <div class="text-center mt-6">
+                <div class="text-sm text-gray-500" id="roundCounter"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let playerId = null;
+        let playerName = '';
+        let currentLobby = null;
+        let isKicked = false;
+
+        // Lobby elements
+        const lobby = document.getElementById('lobby');
+        const gameDiv = document.getElementById('game');
+        const playerNameInput = document.getElementById('playerName');
+        const createLobbyBtn = document.getElementById('createLobbyBtn');
+        const joinLobbyBtn = document.getElementById('joinLobbyBtn');
+        const lobbyCodeInput = document.getElementById('lobbyCode');
+        const lobbyInfo = document.getElementById('lobbyInfo');
+        const lobbyCodeDisplay = document.getElementById('lobbyCodeDisplay');
+        const playerList = document.getElementById('playerList');
+        const startBtn = document.getElementById('startBtn');
+
+        // Game elements
+        const gameStatus = document.getElementById('gameStatus');
+        const playerWord = document.getElementById('playerWord');
+        const descriptionPhase = document.getElementById('descriptionPhase');
+        const descriptionInput = document.getElementById('descriptionInput');
+        const submitDescription = document.getElementById('submitDescription');
+        const votingPhase = document.getElementById('votingPhase');
+        const descriptionsList = document.getElementById('descriptionsList');
+        const voteList = document.getElementById('voteList');
+        const submitVote = document.getElementById('submitVote');
+        const gameOver = document.getElementById('gameOver');
+        const gameResult = document.getElementById('gameResult');
+        const returnToLobby = document.getElementById('returnToLobby');
+
+        // Helper function to show alerts
+        function showAlert(message, type = 'error') {
+            const alertBox = document.createElement('div');
+            const bgColor = type === 'error' ? 'bg-red-500' : 'bg-amber-500';
+            alertBox.className = `fixed top-4 right-4 ${bgColor} text-white p-4 rounded-lg shadow-lg animate__animated animate__fadeIn z-50`;
+            alertBox.textContent = message;
+            document.body.appendChild(alertBox);
+            
+            setTimeout(() => {
+                alertBox.classList.remove('animate__fadeIn');
+                alertBox.classList.add('animate__fadeOut');
+                setTimeout(() => alertBox.remove(), 500);
+            }, 3000);
+        }
+
+        // Create lobby
+        createLobbyBtn.addEventListener('click', () => {
+            playerName = playerNameInput.value.trim();
+            if (!playerName) {
+                showAlert('Please enter a nickname', 'warning');
+                playerNameInput.classList.add('animate__animated', 'animate__shakeX');
+                setTimeout(() => {
+                    playerNameInput.classList.remove('animate__animated', 'animate__shakeX');
+                }, 1000);
+                return;
+            }
+            showLoader();
+            socket.emit('createLobby', playerName);
+        });
+
+        // Join lobby
+        joinLobbyBtn.addEventListener('click', () => {
+            playerName = playerNameInput.value.trim();
+            const code = lobbyCodeInput.value.trim().toUpperCase();
+            
+            if (!playerName) {
+                showAlert('Please enter a nickname', 'warning');
+                playerNameInput.classList.add('animate__animated', 'animate__shakeX');
+                setTimeout(() => {
+                    playerNameInput.classList.remove('animate__animated', 'animate__shakeX');
+                }, 1000);
+                return;
+            }
+            
+            if (!code) {
+                showAlert('Please enter a lobby code', 'warning');
+                lobbyCodeInput.classList.add('animate__animated', 'animate__shakeX');
+                setTimeout(() => {
+                    lobbyCodeInput.classList.remove('animate__animated', 'animate__shakeX');
+                }, 1000);
+                return;
+            }
+            
+            showLoader();
+            socket.emit('joinLobby', { name: playerName, code });
+        });
+
+        // Start game
+        startBtn.addEventListener('click', () => {
+            socket.emit('startGame', currentLobby);
+        });
+
+        // Submit description
+        submitDescription.addEventListener('click', () => {
+            const description = descriptionInput.value.trim();
+            if (!description) {
+                showAlert('Please enter a description', 'warning');
+                return;
+            }
+            
+            if (isKicked) {
+                showAlert('You have been kicked and cannot participate', 'error');
+                return;
+            }
+            
+            socket.emit('submitDescription', { lobbyCode: currentLobby, description });
+            descriptionInput.disabled = true;
+            submitDescription.disabled = true;
+        });
+
+        // Submit vote
+        submitVote.addEventListener('click', () => {
+            const selected = document.querySelector('input[name="vote"]:checked');
+            
+            if (!selected) {
+                showAlert('Please select a player to vote', 'warning');
+                return;
+            }
+            
+            if (isKicked) {
+                showAlert('You have been kicked and cannot vote', 'error');
+                return;
+            }
+            
+            socket.emit('submitVote', { lobbyCode: currentLobby, votedId: selected.value });
+            submitVote.disabled = true;
+        });
+
+        // Return to lobby
+        returnToLobby.addEventListener('click', () => {
+            gameDiv.classList.add('hidden');
+            lobby.classList.remove('hidden');
+            gameOver.classList.add('hidden');
+            document.getElementById('kickedMessage').classList.add('hidden');
+            
+            // Reset kicked status when returning to lobby
+            isKicked = false; 
+            
+            socket.emit('returnToLobby', currentLobby);
+        });
+
+        // Lobby created
+        socket.on('lobbyCreated', (data) => {
+            hideLoader();
+            currentLobby = data.code;
+            lobbyInfo.classList.remove('hidden');
+            lobbyCodeDisplay.textContent = `Lobby Code: ${data.code}`;
+            updatePlayerList(data.players);
+            playerNameInput.disabled = true;
+            createLobbyBtn.disabled = true;
+            joinLobbyBtn.disabled = true;
+            lobbyCodeInput.disabled = true;
+        });
+
+        // Lobby joined
+        socket.on('lobbyJoined', (data) => {
+            hideLoader();
+            currentLobby = data.code;
+            lobbyInfo.classList.remove('hidden');
+            lobbyCodeDisplay.textContent = `Lobby Code: ${data.code}`;
+            updatePlayerList(data.players);
+            playerNameInput.disabled = true;
+            createLobbyBtn.disabled = true;
+            joinLobbyBtn.disabled = true;
+            lobbyCodeInput.disabled = true;
+        });
+
+        // Update players
+        socket.on('updatePlayers', (data) => {
+            updatePlayerList(data.players);
+        });
+
+        // Game started
+        socket.on('gameStarted', (data) => {
+            lobby.classList.add('hidden');
+            gameDiv.classList.remove('hidden');
+            
+            if (isKicked) {
+                document.getElementById('kickedMessage').classList.remove('hidden');
+                playerWord.classList.add('hidden');
+                descriptionPhase.classList.add('hidden');
+                votingPhase.classList.add('hidden');
+                gameStatus.textContent = 'Spectating';
+                return;
+            }
+            
+            playerWord.textContent = `Your word: ${data.word}`;
+            playerWord.classList.remove('hidden');
+            gameStatus.textContent = 'Describe your word!';
+            descriptionPhase.classList.remove('hidden');
+            votingPhase.classList.add('hidden');
+            descriptionInput.value = '';
+            descriptionInput.disabled = false;
+            submitDescription.disabled = false;
+
+            // Display round information
+            const roundCounter = document.getElementById('roundCounter');
+            if (data.round !== undefined) {
+                roundCounter.textContent = `Round ${data.round + 1}`;
+            }
+        });
+
+        // Descriptions submitted
+        socket.on('descriptionsSubmitted', (data) => {
+            descriptionPhase.classList.add('hidden');
+            
+            if (isKicked) {
+                // If kicked, only show descriptions but not voting interface
+                document.getElementById('kickedMessage').classList.remove('hidden');
+                descriptionsList.innerHTML = '';
+                data.descriptions.forEach(({ name, description }) => {
+                    const li = document.createElement('li');
+                    li.className = "p-2 border-b border-gray-100";
+                    li.innerHTML = `<span class="font-medium">${name}:</span> "${description}"`;
+                    descriptionsList.appendChild(li);
+                });
+                gameStatus.textContent = 'Spectating';
+                return;
+            }
+            
+            votingPhase.classList.remove('hidden');
+            gameStatus.textContent = 'Vote for the impostor!';
+            descriptionsList.innerHTML = '';
+            voteList.innerHTML = '';
+            
+            data.descriptions.forEach(({ playerId, name, description }) => {
+                const li = document.createElement('li');
+                li.className = "p-2 border-b border-gray-100";
+                li.innerHTML = `<span class="font-medium">${name}:</span> "${description}"`;
+                descriptionsList.appendChild(li);
+                
+                // Don't add yourself to the voting list
+                if (playerId !== socket.id) {
+                    const voteLi = document.createElement('li');
+                    voteLi.className = "flex items-center p-2 hover:bg-red-100 rounded transition-colors";
+                    voteLi.innerHTML = `
+                        <label class="flex items-center w-full cursor-pointer">
+                            <input type="radio" name="vote" value="${playerId}" class="mr-3 h-4 w-4 text-red-600">
+                            <div class="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-700 font-bold mr-2">
+                                ${name.charAt(0).toUpperCase()}
+                            </div>
+                            <span>${name}</span>
+                        </label>
+                    `;
+                    voteList.appendChild(voteLi);
+                }
+            });
+            
+            submitVote.classList.remove('hidden');
+            submitVote.disabled = false;
+        });
+
+        // Player kicked
+        socket.on('playerKicked', (data) => {
+            votingPhase.classList.add('hidden');
+            
+            // Check if current player was kicked
+            if (data.kickedId === socket.id) {
+                isKicked = true;
+                document.getElementById('kickedMessage').classList.remove('hidden');
+                playerWord.classList.add('hidden');
+                descriptionPhase.classList.add('hidden');
+                gameStatus.textContent = 'You were kicked!';
+                
+                // Show notification to kicked player
+                showAlert('You were kicked from the game!', 'error');
+            } else {
+                // For other players, show who was kicked
+                gameStatus.textContent = `${data.name} was kicked!`;
+                
+                // Show notification to other players
+                showAlert(`${data.name} was kicked from the game`, 'warning');
+            }
+            
+            // Only non-kicked players can start next round
+            if (!isKicked) {
+                setTimeout(() => {
+                    socket.emit('nextRound', currentLobby);
+                }, 2000);
+            }
+        });
+
+        // Game over
+        socket.on('gameOver', (data) => {
+            votingPhase.classList.add('hidden');
+            descriptionPhase.classList.add('hidden');
+            document.getElementById('kickedMessage').classList.add('hidden');
+            gameOver.classList.remove('hidden');
+            gameStatus.textContent = '';
+            playerWord.classList.add('hidden');
+            gameResult.textContent = data.message;
+            
+            if (data.message === 'You were kicked!') {
+                isKicked = true;
+            }
+        });
+
+        // Error message
+        socket.on('error', (message) => {
+            hideLoader();
+            showAlert(message);
+        });
+
+        // Update player list
+        function updatePlayerList(players) {
+            playerList.innerHTML = '';
+            const isHost = Object.keys(players)[0] === socket.id;
+            for (let id in players) {
+                const li = document.createElement('li');
+                li.className = "flex items-center p-2 hover:bg-gray-50 rounded";
+                if (id === socket.id) {
+                    li.innerHTML = `
+                        <div class="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold mr-2">
+                            ${players[id].name.charAt(0).toUpperCase()}
+                        </div>
+                        <span class="font-medium">${players[id].name}</span>
+                        <span class="ml-auto text-sm text-indigo-500">(You)</span>
+                    `;
+                } else {
+                    li.innerHTML = `
+                        <div class="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-700 font-bold mr-2">
+                            ${players[id].name.charAt(0).toUpperCase()}
+                        </div>
+                        <span>${players[id].name}</span>
+                    `;
+                }
+                playerList.appendChild(li);
+            }
+            startBtn.classList.toggle('hidden', !isHost || Object.keys(players).length < 4);
+            
+            if (!isHost && Object.keys(players).length < 4) {
+                const waitingMsg = document.createElement('p');
+                waitingMsg.className = "text-center text-gray-500 mt-4";
+                waitingMsg.textContent = "Waiting for host to start the game...";
+                lobbyInfo.appendChild(waitingMsg);
+            }
+        }
+        
+        // Show loader
+        function showLoader() {
+            document.getElementById('loader').classList.remove('hidden');
+        }
+        
+        // Hide loader
+        function hideLoader() {
+            document.getElementById('loader').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
